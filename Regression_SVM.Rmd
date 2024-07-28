@@ -1,0 +1,81 @@
+---
+title: "Regression_SVM"
+author: "Milla Nielsen"
+date: "2024-07-28"
+output: html_document
+---
+
+This is the script for training and testing/outputting predictions for the regresssion project using Support Vector Machine. 
+
+
+SVM
+```{r}
+library(kernlab)
+library(tidymodels)
+library(e1071)
+library(tidyverse)
+library(tidymodels)
+library(yardstick)
+
+train_data <- read_csv("/Users/millanielsen/Desktop/101c/train.csv")
+test_data <- read_csv("/Users/millanielsen/Desktop/101c/test.csv")
+
+train_data <- train_data %>% select(-`order_totals`)
+
+
+# svm model
+svm <- svm_rbf(
+  cost = tune(),    
+  rbf_sigma = tune() 
+) %>%
+  set_engine("kernlab") %>%
+  set_mode("regression")
+
+# recipe
+recipe <- recipe(log_total ~ ., data = train_data) %>%
+  step_dummy(all_nominal(), -all_outcomes()) %>%
+  step_normalize(all_predictors(), -all_outcomes())
+
+# workflow
+workflow <- workflow() %>%
+  add_recipe(recipe) %>%
+  add_model(svm)
+
+
+# cross-validation 
+set.seed(404)
+cv <- vfold_cv(train_data, v = 10)
+
+# grid of hyperparameters
+grid <- grid_max_entropy(
+  cost(),
+  rbf_sigma(),
+  size = 20
+)
+
+# tune the model
+tuning <- tune_grid(
+  workflow,
+  resamples = cv,
+  grid = grid,
+  control = control_grid(save_pred = TRUE)
+)
+
+collect_metrics(tuning) %>% arrange(mean)
+
+# best hyperparameters
+best <- select_best(tuning, metric = "rmse")
+workflow_tuned <- finalize_workflow(workflow, best)
+svm_tunned_fit <- fit(workflow_tuned, data = train_data)
+
+# predictions
+predictions <- predict(svm_tunned_fit, new_data = test_data)
+
+
+predictions <- predictions %>% bind_cols(id = test_data$id) %>% relocate(id)
+names(predictions) <- c("id","log_total")
+write.csv(predictions,file="/Users/millanielsen/Desktop/101c/predict9.csv", row.names = FALSE)
+
+print(predictions)
+
+```
