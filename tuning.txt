@@ -1,0 +1,168 @@
+
+R version 4.3.2 (2023-10-31) -- "Eye Holes"
+Copyright (C) 2023 The R Foundation for Statistical Computing
+Platform: x86_64-apple-darwin20 (64-bit)
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+[R.app GUI 1.80 (8281) x86_64-apple-darwin20]
+
+2024-07-24 10:12:20.204 R[13750:256193] WARNING: Secure coding is not enabled for restorable state! Enable secure coding by implementing NSApplicationDelegate.applicationSupportsSecureRestorableState: and returning YES.
+[Workspace restored from /Users/alexisadzich/.RData]
+[History restored from /Users/alexisadzich/.Rapp.history]
+
+> library(tidymodels)
+── Attaching packages ─────────────────────────────────────── tidymodels 1.2.0 ──
+✔ broom        1.0.5      ✔ recipes      1.0.10
+✔ dials        1.2.1      ✔ rsample      1.2.1 
+✔ dplyr        1.1.4      ✔ tibble       3.2.1 
+✔ ggplot2      3.5.1      ✔ tidyr        1.3.1 
+✔ infer        1.0.7      ✔ tune         1.2.1 
+✔ modeldata    1.4.0      ✔ workflows    1.1.4 
+✔ parsnip      1.2.1      ✔ workflowsets 1.1.0 
+✔ purrr        1.0.2      ✔ yardstick    1.3.1 
+── Conflicts ────────────────────────────────────────── tidymodels_conflicts() ──
+✖ purrr::discard() masks scales::discard()
+✖ dplyr::filter()  masks stats::filter()
+✖ dplyr::lag()     masks stats::lag()
+✖ recipes::step()  masks stats::step()
+• Learn how to get started at https://www.tidymodels.org/start/
+Warning message:
+package ‘modeldata’ was built under R version 4.3.3 
+> library(tidyverse)
+── Attaching core tidyverse packages ───────────────────────── tidyverse 2.0.0 ──
+✔ forcats   1.0.0     ✔ readr     2.1.5
+✔ lubridate 1.9.3     ✔ stringr   1.5.1
+── Conflicts ─────────────────────────────────────────── tidyverse_conflicts() ──
+✖ readr::col_factor() masks scales::col_factor()
+✖ purrr::discard()    masks scales::discard()
+✖ dplyr::filter()     masks stats::filter()
+✖ stringr::fixed()    masks recipes::fixed()
+✖ dplyr::lag()        masks stats::lag()
+✖ readr::spec()       masks yardstick::spec()
+ℹ Use the conflicted package (<http://conflicted.r-lib.org/>) to force all conflicts to become errors
+> train <- read_csv("ucla-stats-101-c-2024-su-regression/train.csv")
+Error: 'ucla-stats-101-c-2024-su-regression/train.csv' does not exist in current working directory ('/Users/alexisadzich').
+> cd /Users/alexisadzich/Desktop/101c
+Error: unexpected symbol in "cd /Users/alexisadzich/Desktop/101c"
+> cd Users/alexisadzich/Desktop/101c
+Error: unexpected symbol in "cd Users"
+> setwd("D:/Users/alexisadzich/Desktop/101c")
+Error in setwd("D:/Users/alexisadzich/Desktop/101c") : 
+  cannot change working directory
+> getwd()
+[1] "/Users/alexisadzich"
+> train<- read_csv("Desktop/101c/ucla-stats-101-c-2024-su-regression/train.csv")
+Rows: 2942 Columns: 35                                                                                              
+── Column specification ─────────────────────────────────────────────────────────
+Delimiter: ","
+chr  (1): q_demos_state
+dbl (34): year, month, order_totals, log_total, count, count_female, count_ma...
+
+ℹ Use `spec()` to retrieve the full column specification for this data.
+ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
+> train <- train %>% select(!order_totals)
+> set.seed(1000)
+> amz_folds <- vfold_cv(train, v = 10, strata = log_total)
+> rf_spec <- rand_forest(mtry = tune()) %>% 
++   set_engine("ranger", regularization.factor = tune("regularization")) %>% 
++   set_mode("regression")
+> rf_param <- extract_parameter_set_dials(rf_spec)
+> pca_rec2 <- recipe(log_total~., data = train)
+> wflow <- workflow() %>% 
++   add_model(rf_spec) %>% 
++   add_recipe(pca_rec2)
+> updated_param <- wflow %>% 
++   extract_parameter_set_dials() %>% 
++   finalize(train)
+> reg_tune2 <- wflow %>% 
++   tune_grid(
++     amz_folds,
++     grid = updated_param %>% grid_random(size = 100)
++   )
+There were issues with some computations   A: x40
+> autoplot(reg_tune2)
+> show_best(reg_tune2)
+# A tibble: 5 × 8
+   mtry regularization .metric .estimator  mean     n std_err .config            
+  <int>          <dbl> <chr>   <chr>      <dbl> <int>   <dbl> <chr>              
+1     2          0.578 rmse    standard   0.113    10 0.00309 Preprocessor1_Mode…
+2     2          0.898 rmse    standard   0.113    10 0.00308 Preprocessor1_Mode…
+3     3          0.126 rmse    standard   0.113    10 0.00298 Preprocessor1_Mode…
+4     2          0.996 rmse    standard   0.113    10 0.00303 Preprocessor1_Mode…
+5     4          0.487 rmse    standard   0.113    10 0.00298 Preprocessor1_Mode…
+Warning message:
+In show_best(reg_tune2) :
+  No value of `metric` was given; "rmse" will be used.
+> autoplot(reg_tune2)
+> autoplot(reg_tune2)
+> autoplot(reg_tune2) + 
++   scale_color_viridis_d(direction = -1) + 
++   theme(legend.position = "top")
+> autoplot(reg_tune2)
+> autoplot(reg_tune2) +
++ scale_color_viridis_d(direction=-1) + theme(legend.position="top")
+> xgboost_rec <- recipe(log_total ~., data = train) %>% 
++   step_novel(all_nominal_predictors()) %>% 
++   step_dummy(all_nominal_predictors(), one_hot = TRUE) %>% 
++   step_zv(all_predictors())
+> xgboost_spec <- 
++   boost_tree(trees = tune(),
++              min_n = tune(),
++              tree_depth = tune(),
++              learn_rate = tune(),
++              loss_reduction = tune(),
++              sample_size = tune()) %>% 
++   set_mode("regression") %>% 
++   set_engine("xgboost")
+> xgboost_wflow <-
++   workflow() %>% 
++   add_recipe(xgboost_rec) %>% 
++   add_model(xgboost_spec)
+> params <- xgboost_wflow %>% 
++   extract_parameter_set_dials() %>% 
++   finalize(train)
+> set.seed(1000)
+> xgboost_tune <- tune_grid(xgboost_wflow,
++                           resamples = amz_folds,
++                           grid = params %>% grid_random(size = 100))
+> autoplot(xgboost_tune)
+> show_best(xgboost_tune)
+# A tibble: 5 × 12
+  trees min_n tree_depth learn_rate loss_reduction sample_size .metric .estimator
+  <int> <int>      <int>      <dbl>          <dbl>       <dbl> <chr>   <chr>     
+1   528    26         10    0.0119   0.0000000941        0.554 rmse    standard  
+2  1334    16         11    0.00854  0.00000000125       0.416 rmse    standard  
+3  1379     2          6    0.00741  0.0000000105        0.449 rmse    standard  
+4   515    29          9    0.0160   0.000305            0.346 rmse    standard  
+5  1521     6         15    0.00574  0.0286              0.400 rmse    standard  
+# ℹ 4 more variables: mean <dbl>, n <int>, std_err <dbl>, .config <chr>
+Warning message:
+In show_best(xgboost_tune) :
+  No value of `metric` was given; "rmse" will be used.
+> show_best(xgboost_tune)
+# A tibble: 5 × 12
+  trees min_n tree_depth learn_rate loss_reduction sample_size .metric .estimator  mean     n std_err
+  <int> <int>      <int>      <dbl>          <dbl>       <dbl> <chr>   <chr>      <dbl> <int>   <dbl>
+1   528    26         10    0.0119   0.0000000941        0.554 rmse    standard   0.111    10 0.00265
+2  1334    16         11    0.00854  0.00000000125       0.416 rmse    standard   0.111    10 0.00253
+3  1379     2          6    0.00741  0.0000000105        0.449 rmse    standard   0.112    10 0.00253
+4   515    29          9    0.0160   0.000305            0.346 rmse    standard   0.112    10 0.00272
+5  1521     6         15    0.00574  0.0286              0.400 rmse    standard   0.112    10 0.00270
+# ℹ 1 more variable: .config <chr>
+Warning message:
+In show_best(xgboost_tune) :
+  No value of `metric` was given; "rmse" will be used.
+> 
