@@ -1,0 +1,92 @@
+---
+title: "Regression_XGBoost"
+author: "Milla Nielsen"
+date: "2024-07-28"
+output: html_document
+---
+
+This is the script for training and testing/outputting predictions for the regresssion project using XGBoost. 
+
+
+```{r}
+
+library(tidyverse)
+library(tidymodels)
+library(xgboost)
+library(yardstick)
+
+train_data <- read_csv("/Users/millanielsen/Desktop/101c/train.csv")
+test_data <- read_csv("/Users/millanielsen/Desktop/101c/test.csv")
+
+train_data <- train_data %>% select(-`order_totals`)
+
+
+# xgboost model 
+xgb <- boost_tree(
+  trees = 1000,
+  tree_depth = tune(),
+  min_n = tune(),
+  loss_reduction = tune(),
+  sample_size = tune(),
+  mtry = tune(),
+  learn_rate = tune()) %>%
+  set_engine("xgboost") %>%
+  set_mode("regression")
+
+# recipe
+recipe <- recipe(log_total ~ ., data = train_data) %>%
+  step_dummy(all_nominal(), -all_outcomes()) %>%
+  step_normalize(all_predictors(), -all_outcomes())
+
+
+# workflow
+workflow <- workflow() %>%
+  add_recipe(recipe) %>%
+  add_model(xgb)
+
+
+# cross-validation 
+set.seed(404)
+cv_folds <- vfold_cv(train_data, v = 10)
+
+# grid of values to tune
+grid <- grid_max_entropy(
+  tree_depth(),
+  min_n(),
+  loss_reduction(),
+  sample_size = sample_prop(),
+  finalize(mtry(), train_data),
+  learn_rate(),
+  size = 20)
+
+
+# tune the model
+tuning <- tune_grid(
+  workflow,
+  resamples = cv_folds,
+  grid = grid,
+  control = control_grid(save_pred = TRUE)
+)
+
+collect_metrics(tuning) %>% arrange(mean)
+
+# using the select_best function to find the best hyperparmeters
+best <- select_best(tuning, metric = "rmse")
+
+# set workflow with best hyperparameters 
+best_workflow <- finalize_workflow(workflow, best)
+
+# fit model with all the training data
+final_fit <- fit(best_workflow, data = train_data)
+
+# make predictions on test
+predictions <- predict(final_fit, new_data = test_data)
+
+predictions <- predictions %>% bind_cols(id = test_data$id) %>% relocate(id)
+names(predictions) <- c("id","log_total")
+write.csv(predictions,file="/Users/millanielsen/Desktop/101c/predict8.csv", row.names = FALSE)
+
+# predictions
+print(predictions)
+```
+
