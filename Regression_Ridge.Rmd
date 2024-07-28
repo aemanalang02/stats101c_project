@@ -1,0 +1,68 @@
+---
+title: "Regression_Ridge"
+author: "Milla Nielsen"
+date: "2024-07-28"
+output: html_document
+---
+
+This is the script for training and testing/outputting predictions for the regresssion project using Ridge Regression. 
+
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(glmnet)
+
+train_data <- read_csv("/Users/millanielsen/Desktop/101c/train.csv")
+test_data <- read_csv("/Users/millanielsen/Desktop/101c/test.csv")
+
+train_data <- train_data %>% select(-`order_totals`)
+
+
+# initialize model
+ridge <- linear_reg(penalty = tune(), mixture = 0) %>% 
+  set_engine("glmnet") %>% set_mode("regression")
+
+# intialize recipe
+recipe <- recipe(log_total ~ ., data = train_data) %>%
+  step_dummy(all_nominal(), -all_outcomes()) %>%
+  step_normalize(all_predictors(), -all_outcomes())
+
+# initialize workflow
+workflow <- workflow() %>%
+  add_recipe(recipe) %>%
+  add_model(ridge)
+
+# cross-validation 
+set.seed(404)
+cv <- vfold_cv(train_data, v = 10)
+
+grid <- grid_regular(penalty(), levels = 50)
+
+# tune the model
+tunning <- tune_grid(
+  workflow,
+  resamples = cv,
+  grid = grid,
+  control = control_grid(save_pred = TRUE)
+)
+
+
+collect_metrics(tunning) %>% arrange(mean)
+# best penalty 
+penalty <- select_best(tunning, metric = "rmse")
+
+workflow_tunned <- finalize_workflow(workflow, penalty)
+
+# fit the final model 
+final_fit <- fit(workflow_tunned, data = train_data)
+
+# predictions on the test set
+predictions <- predict(final_fit, new_data = test_data)
+predictions <- predictions %>% bind_cols(id = test_data$id) %>% relocate(id)
+names(predictions) <- c("id","log_total")
+write.csv(predictions,file="/Users/millanielsen/Desktop/101c/predict7.csv", row.names = FALSE)
+
+print(predictions)
+
+```
