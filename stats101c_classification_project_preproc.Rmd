@@ -1,0 +1,82 @@
+---
+title: "stats101c_classification_project"
+author: "Annika Manalang"
+date: "2024-07-30"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+train <- read.csv("train_class.csv")
+test <- read.csv("test_class.csv")
+
+train <- train %>%
+  mutate(winner = as.factor(winner))
+
+```
+
+
+Found that there were missing economic values for some virginia counties, took the mean values of all Virginia counties in the test data and inputted those values for the missing ones (for both the train and test sets)
+```{r}
+va_missing_value_inputs <- train %>%
+  filter(grepl(", Virginia", name), !is.na(income_per_cap_2016)) %>%
+  summarise(income_2016 = mean(income_per_cap_2016), income_2017 = mean(income_per_cap_2017), income_2018 = mean(income_per_cap_2018), income_2019 = mean(income_per_cap_2019), income_2020 = mean(income_per_cap_2020), gdp16 = mean(gdp_2016), gdp17 = mean(gdp_2017), gdp18 = mean(gdp_2018), gdp19 = mean(gdp_2019), gdp20 = mean(gdp_2020))
+
+train_missing_values <- train %>%
+  filter(is.na(income_per_cap_2016)) %>%
+  mutate(income_per_cap_2016 = va_missing_value_inputs$income_2016, income_per_cap_2017 = va_missing_value_inputs$income_2017, income_per_cap_2018 = va_missing_value_inputs$income_2018, income_per_cap_2019 = va_missing_value_inputs$income_2019, income_per_cap_2020 = va_missing_value_inputs$income_2020, gdp_2016 = va_missing_value_inputs$gdp16, gdp_2017 = va_missing_value_inputs$gdp17, gdp_2018 = va_missing_value_inputs$gdp18, gdp_2019 = va_missing_value_inputs$gdp19, gdp_2020 = va_missing_value_inputs$gdp20)
+
+train <- train %>%
+  filter(!is.na(income_per_cap_2016)) %>%
+  bind_rows(train_missing_values) %>%
+  arrange(id)
+
+test_missing_values <- test %>%
+  filter(is.na(income_per_cap_2016)) %>%
+  mutate(income_per_cap_2016 = va_missing_value_inputs$income_2016, income_per_cap_2017 = va_missing_value_inputs$income_2017, income_per_cap_2018 = va_missing_value_inputs$income_2018, income_per_cap_2019 = va_missing_value_inputs$income_2019, income_per_cap_2020 = va_missing_value_inputs$income_2020, gdp_2016 = va_missing_value_inputs$gdp16, gdp_2017 = va_missing_value_inputs$gdp17, gdp_2018 = va_missing_value_inputs$gdp18, gdp_2019 = va_missing_value_inputs$gdp19, gdp_2020 = va_missing_value_inputs$gdp20)
+
+test <- test %>%
+  filter(!is.na(income_per_cap_2016)) %>%
+  bind_rows(test_missing_values) %>%
+  arrange(id)
+```
+
+EDA
+```{r}
+
+```
+
+
+```{r}
+recipe <- recipe(winner ~ ., data = train_simp) %>%
+  step_normalize(all_predictors()) %>%
+  step_dummy(all_nominal_predictors())
+
+model_spec <- rand_forest(mtry = 5, trees = 1000) %>%
+  set_engine("ranger") %>%
+  set_mode("classification")
+
+workflow <- workflow() %>%
+  add_recipe(recipe) %>%
+  add_model(model_spec)
+
+fit <- workflow %>%
+  fit(data = train_simp)
+
+# Evaluate the Model
+predictions2 <- fit %>%
+  predict(new_data = test)
+
+predictions2$id <- test$id
+
+
+```
+
+```{r}
+write.csv(predictions2, "pred_testclass2.csv")
+```
+
