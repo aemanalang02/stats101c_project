@@ -1,0 +1,105 @@
+---
+title: "101c_classification_eda"
+author: "Alexis Adzich"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Eda
+
+```{r}
+# load libraries
+library(tidymodels)
+library(tidyverse)
+library(ISLR)
+
+# load data
+train <- read_csv("train_class.csv")
+test <- read_csv("test_class.csv")
+
+train <- train %>%
+  mutate(winner = as.factor(winner))
+train_simp <- train %>% 
+  select(-c(name,id))
+
+
+set.seed(1000)
+cv_folds <- vfold_cv(train_simp, v = 10, strata = winner)
+cv_folds
+```
+
+```{r}
+# logit model
+xgboost_recipe <- recipe(winner ~ ., data = train_simp) %>%
+  step_rm(which(duplicated(as.list(train_simp)))) %>% 
+  step_normalize(all_numeric_predictors()) %>%
+  step_dummy(all_nominal_predictors()) %>% 
+  step_zv()
+
+# chose random hyperparameters, going to tune it overnight
+xgboost_model <- 
+  boost_tree(
+    tree_depth = 5,
+    trees = 1000,
+    #learn_rate = tune(),
+    mtry = 10
+  ) %>% 
+  set_engine("xgboost") %>% 
+  set_mode("classification")
+
+# look at all of the parameters its tuning
+#xgboost_params <- extract_parameter_set_dials(xgboost_model)
+
+# recipe and workflow
+workflow <- workflow() %>%
+  add_recipe(xgboost_recipe) %>%
+  add_model(xgboost_model)
+
+# some parameters need to be finalized after looking at the data
+updated_params <- workflow %>% 
+  extract_parameter_set_dials() %>% 
+  finalize(train_simp)
+
+# tuning against cv folds
+tune <- workflow %>% 
+  tune_grid(
+    cv_folds,
+    grid = updated_params %>% grid_regular(levels = 5)
+  )
+tune
+# autoplot(tune)
+
+# resampling to test out model
+xgboost_res <- 
+  workflow %>% 
+  fit_resamples(resamples = cv_folds) 
+collect_metrics(xgboost_res)
+
+```
+
+```{r}
+# ok now we fit it to training
+xgboost_fit <- 
+  workflow %>% 
+  fit(data = train_simp)
+
+# make our preds on the test data
+preds <-predict(xgboost_fit,new_data = test)
+
+# clean up the preds
+preds <- preds %>% 
+  bind_cols(id = test$id) %>% 
+  relocate(id) %>% 
+  rename(winner = .pred_class)
+
+```
+
+
+```{r}
+# make the csv to submit
+write.csv(preds, "pred_xgboost_tune.csv", row.names = FALSE)
+```

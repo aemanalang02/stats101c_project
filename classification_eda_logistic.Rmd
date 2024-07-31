@@ -1,0 +1,115 @@
+---
+title: "101c_classification_eda"
+author: "Alexis Adzich"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Vague EDA
+
+```{r}
+# load libraries
+library(tidymodels)
+library(tidyverse)
+library(ISLR)
+
+# load data
+train <- read_csv("train_class.csv")
+test <- read_csv("test_class.csv")
+
+train <- train %>%
+  mutate(winner = as.factor(winner))
+
+train_simp <- train %>% 
+  select(-c(name,id))
+
+train_simp
+```
+
+```{r}
+# look at how many na's we have
+colSums(is.na(train_simp))
+
+# duplicated columns
+#duplicated(t(train_simp))
+train_simp_no_dupes <- train_simp[!duplicated(as.list(train_simp))]
+train_simp_no_dupes
+which(duplicated(as.list(train_simp)))
+```
+
+```{r}
+library(ggplot2)
+# ooh interesting, slightly unbalanced class sizes
+ggplot(train, aes(winner)) + geom_bar()
+```
+
+
+```{r}
+set.seed(1000)
+# cross valdiation used for tuning and estimating accuracy score
+cv_folds <- vfold_cv(train_simp, v = 5, strata = winner)
+cv_folds
+```
+
+
+```{r}
+# logistic regression model
+
+# preprocessing steps for the data
+log_it_recipe <- recipe(winner ~ ., data = train_simp) %>%
+  # removes duplicate cols
+  step_rm(which(duplicated(as.list(train_simp)))) %>% 
+  # normalizes data
+  step_normalize(all_numeric_predictors()) %>%
+  # uses interpolation to fill missing data for income and gdp
+  step_impute_bag(contains('income_per_cap'), contains('gdp')) %>% 
+  # turns nominal predictors into dummy variables (lol i dont think we have any nominal predictors)
+  step_dummy(all_nominal_predictors()) %>% 
+  # lol kinda useless too if step dummy isnt doing anything
+  step_zv()
+
+# defining model
+log_it_model <- 
+  logistic_reg() %>% 
+  set_engine("glm") %>% 
+  set_mode("classification")
+
+# add recipe and model together
+workflow <- workflow() %>%
+  add_recipe(log_it_recipe) %>%
+  add_model(log_it_model)
+
+# resamples with cros validation
+log_it_res <- 
+  workflow %>% 
+  fit_resamples(resamples = cv_folds) 
+collect_metrics(log_it_res)
+```
+
+```{r}
+# fit workflow to training data
+log_it_fit <- 
+  workflow %>% 
+  fit(data = train_simp)
+
+# now use fitted model to make predictions on test
+preds <-predict(log_it_fit,new_data = test)
+```
+
+```{r}
+# clean up predictions a bit
+preds <- preds %>% 
+  bind_cols(id = test$id) %>% 
+  relocate(id) %>% 
+  rename(winner = .pred_class)
+preds
+```
+
+```{r}
+# now make a csv file (without the index row names)
+write.csv(preds, "pred_logistic_2.csv", row.names = FALSE)
+```
