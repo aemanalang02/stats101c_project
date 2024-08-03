@@ -1,0 +1,183 @@
+---
+title: "classification_stacks"
+author: "Alexis Adzich"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## data
+
+```{r}
+# load libraries
+library(tidymodels)
+library(tidyverse)
+library(stacks)
+library(ISLR)
+
+# load data
+train <- read_csv("train_class.csv")
+test <- read_csv("test_class.csv")
+
+train <- train %>%
+  mutate(winner = as.factor(winner))
+train_simp <- train %>% 
+  select(-c(name,id))
+
+
+set.seed(1000)
+cv_folds <- vfold_cv(train_simp, v = 10, strata = winner)
+cv_folds
+
+train_simp
+```
+
+```{r}
+ctrl_grid <- control_stack_grid()
+ctrl_res <- control_stack_resamples()
+metric <- metric_set(accuracy, roc_auc)
+
+base_recipe <- recipe(winner ~ ., data = train_simp) %>%
+  step_mutate(across(starts_with("c"), ~ .x / x0001e)) %>%
+  step_mutate(across(starts_with("x0"), ~ .x / x0001e)) %>%
+  step_rm(which(duplicated(as.list(train_simp))),x0001e) %>% 
+  step_rm(x0019e:x0029e) %>% 
+  step_corr(c01_001e:c01_027e, threshold = .9)
+
+
+log_model <- 
+  logistic_reg() %>% 
+  set_engine("glm") %>% 
+  set_mode("classification")
+
+log_recipe <- base_recipe %>% 
+  step_dummy(all_nominal_predictors()) %>% 
+  step_zv(all_predictors()) %>% 
+  step_impute_bag(contains('income_per_cap'), contains('gdp')) %>% 
+  step_normalize(all_numeric_predictors())
+
+log_wflow <- workflow() %>% 
+  add_model(log_model) %>% 
+  add_recipe(log_recipe)
+
+log_res <- tune_grid(
+  log_wflow,
+  resamples = cv_folds,
+  grid = 5,
+  metrics = metric,
+  control = ctrl_grid
+)
+
+
+xgboost_model <- 
+  boost_tree(
+    tree_depth = tune(),
+    trees = 1000,
+    mtry = tune()
+  ) %>% 
+  set_engine("xgboost") %>% 
+  set_mode("classification")
+
+xgboost_recipe <- base_recipe %>% 
+  step_dummy(all_nominal_predictors()) %>% 
+  step_zv(all_predictors()) %>% 
+  step_normalize(all_numeric_predictors())
+
+xgboost_wflow <- workflow() %>% 
+  add_model(xgboost_model) %>% 
+  add_recipe(xgboost_recipe)
+
+xgboost_params <- xgboost_wflow %>% 
+  extract_parameter_set_dials() %>% 
+  finalize(train_simp)
+
+xgboost_res <- tune_grid(
+  xgboost_wflow,
+  resamples = cv_folds,
+  metrics = metric,
+  grid = xgboost_params %>% grid_regular(levels = 5),
+  control = ctrl_grid
+)
+
+rf_model <- rand_forest(mtry = tune(), trees = 1000) %>%
+  set_engine("ranger") %>%
+  set_mode("classification")
+
+
+rf_recipe <- base_recipe %>% 
+  step_dummy(all_nominal_predictors()) %>% 
+  step_zv(all_predictors()) %>% 
+  step_impute_bag(contains('income_per_cap'), contains('gdp')) %>% 
+  step_normalize(all_numeric_predictors())
+
+rf_wflow <- workflow() %>% 
+  add_model(rf_model) %>% 
+  add_recipe(rf_recipe)
+
+
+rf_params <- rf_wflow %>% 
+  extract_parameter_set_dials() %>% 
+  finalize(train_simp)
+
+rf_res <- tune_grid(
+  rf_wflow,
+  resamples = cv_folds,
+  metrics = metric,
+  grid = rf_params %>% grid_regular(levels = 5),
+  control = ctrl_grid
+)
+
+```
+
+
+```{r}
+elec_stack <-
+  stacks() %>% 
+  add_candidates(log_res) %>% 
+  add_candidates(xgboost_res) %>% 
+  add_candidates(rf_res)
+
+```
+
+
+```{r}
+model_st <-
+  elec_stack %>%
+  blend_predictions()
+
+autoplot(model_st)
+autoplot(model_st, type = "members")
+autoplot(model_st, type = "weights")
+```
+
+
+
+```{r}
+model_st <-
+  model_st %>%
+  fit_members()
+elec_test <- 
+  test %>%
+  bind_cols(predict(model_st, .))
+
+elec_preds <- elec_test %>% 
+  select(id, winner = .pred_class)
+ # relocate(id)
+elec_preds
+```
+
+```{r}
+default_preds <- 
+  train_simp %>% select(Truth = "winner") %>%
+  bind_cols(predict(model_st, new_data = train_simp %>% 
+                      select(-winner)))
+conf_mat(default_preds, truth = Truth, estimate = .pred_class)
+```
+
+
+```{r}
+write.csv(elec_preds, "pred_stack_rf_log_xgb_3.csv", row.names = FALSE)
+```

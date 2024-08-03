@@ -1,0 +1,133 @@
+---
+title: "workflow testing"
+author: "Alexis Adzich"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r}
+# load libraries
+library(tidymodels)
+library(tidyverse)
+
+# load data
+train <- read_csv("train_class.csv")
+test <- read_csv("test_class.csv")
+
+train <- train %>%
+  mutate(winner = as.factor(winner))
+train_simp <- train %>% 
+  select(-c(name,id))
+
+
+set.seed(1000)
+cv_folds <- vfold_cv(train_simp, v = 10, strata = winner)
+cv_folds
+```
+
+
+```{r}
+# recipe options
+base_recipe <- recipe(winner ~ ., data = train_simp) %>%
+  step_mutate(across(starts_with("C"), ~ .x / x0001e)) %>%
+  step_mutate(across(starts_with("x0"), ~ .x / x0001e)) %>%
+  step_rm(which(duplicated(as.list(train_simp))),x0001e,x0033e) %>% 
+  step_dummy(all_nominal_predictors()) %>% 
+  step_zv() %>% 
+  step_normalize(all_numeric_predictors())
+
+
+corr_recipe <- base_recipe %>% 
+  step_corr(all_numeric_predictors(), threshold = tune())
+
+pca_recipe <- base_recipe %>% 
+  step_pca(all_numeric_predictors(), threshold = tune()) %>% 
+  step_normalize(all_numeric_predictors())
+  
+```
+
+```{r}
+#knn_model <- nearest_neighbor(neighbors = tune(), weight_func = tune()) %>% 
+#  set_engine("kknn") %>% 
+#  set_mode("classification")
+
+xgboost_model <- 
+  boost_tree(mtry = tune(), trees = tune()) %>% 
+  set_engine("xgboost") %>% 
+  set_mode("classification")
+
+rf_model <- rand_forest(mtry = tune(), trees = tune()) %>%
+  set_engine("ranger") %>%
+  set_mode("classification")
+```
+
+```{r}
+elec_models <- 
+  workflow_set(
+    preproc = list(base = base_recipe, corr = corr_recipe, pca = pca_recipe),
+    models = list( xgboost = xgboost_model, rf = rf_model),
+    cross = TRUE
+    #finalize
+  )
+elec_models
+```
+
+```{r}
+set.seed(1000) 
+
+xgboost_params <- 
+  parameters(num_comp()) %>% 
+  update(num_comp = num_comp(c(5,100)))
+rf_params <- 
+  parameters(num_comp()) %>% 
+  update(num_comp = num_comp(c(5,100)))
+#parameters(base_xgboost)
+
+elec_models <-
+  elec_models %>%
+  option_add(param_info = xgboost_params, id = 'base_xgboost') %>% 
+  option_add(param_info = rf_params, id = 'base_rf') %>% 
+  workflow_map("tune_grid", resamples = cv_folds, grid = 10, verbose = TRUE)
+
+#tune <- workflow %>% 
+#  tune_grid(
+#    cv_folds,
+#    grid = updated_params %>% grid_regular(levels = 5)
+#  )
+
+#finalize_and_create_grid <- function(wf, data) {
+#  params <- parameters(wf)
+##  finalized_params <- finalize(params, data)
+#  grid <- grid_regular(finalized_params, levels = 10)
+#  grid
+#}
+
+# Apply the function to each workflow in the set
+#workflow_grids <- elec_models %>%
+#  mutate(finalized_grid = map(elec_models$workflow, ~finalize_and_create_grid(.x, train_simp)))
+
+# Define the tuning grid control
+#grid_ctrl <- control_grid(save_pred = TRUE)
+
+# Tune the models using workflow_map
+#tuned_results <- workflow_grids %>%
+#  workflow_map(
+  #  "tune_grid",
+ #   resamples = cv_folds,
+ #   grid = finalized_grid,
+ ##   control = grid_ctrl,
+ #   verbose = TRUE
+ # )
+
+# View the results
+autoplot(tuned_results)
+collect_metrics(tuned_results)
+
+```
+
+
+```{r}
+install.packages("stack")
+library(stack)
+```
+

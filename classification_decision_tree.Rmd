@@ -1,0 +1,105 @@
+---
+title: "101c_classification_dec_trees"
+author: "Alexis Adzich"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## data
+
+```{r}
+# load libraries
+library(tidymodels)
+library(tidyverse)
+library(ISLR)
+library(LiblineaR)
+library(kernlab)
+# load data
+train <- read_csv("train_class.csv")
+test <- read_csv("test_class.csv")
+
+train <- train %>%
+  mutate(winner = as.factor(winner))
+train_simp <- train %>% 
+  select(-c(name,id))
+
+
+set.seed(1000)
+cv_folds <- vfold_cv(train_simp, v = 10, strata = winner)
+cv_folds
+```
+
+```{r}
+# xgboost model
+dec_tree_recipe <- recipe(winner ~ ., data = train_simp) %>%
+  step_mutate(across(starts_with("C"), ~ .x / x0001e)) %>%
+  step_mutate(across(starts_with("x0"), ~ .x / x0001e)) %>%
+  step_rm(which(duplicated(as.list(train_simp))),x0001e,x0033e) %>% 
+  step_dummy(all_nominal_predictors()) %>% 
+  step_zv() %>% 
+  step_normalize(all_numeric_predictors())
+
+# chose random hyperparameters, going to tune it overnight
+dec_tree_model <- 
+  decision_tree() %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+
+# look at all of the parameters its tuning
+#xgboost_params <- extract_parameter_set_dials(xgboost_model)
+
+# recipe and workflow
+workflow <- workflow() %>%
+  add_recipe(dec_tree_recipe) %>%
+  add_model(dec_tree_model)
+
+# some parameters need to be finalized after looking at the data
+updated_params <- workflow %>% 
+  extract_parameter_set_dials() %>% 
+  finalize(train_simp)
+
+
+# tuning against cv folds
+#tune <- workflow %>% 
+#  tune_grid(
+#    cv_folds,
+#    grid = updated_params %>% grid_regular(levels = 5)
+#  )
+#tune
+# autoplot(tune)
+
+
+# resampling to test out model
+dec_tree_res <- 
+  workflow %>% 
+  fit_resamples(resamples = cv_folds) 
+collect_metrics(dec_tree_res)
+#show_notes(.Last.tune.result)
+```
+
+```{r}
+# ok now we fit it to training
+xgboost_fit <- 
+  workflow %>% 
+  fit(data = train_simp)
+
+# make our preds on the test data
+preds <-predict(xgboost_fit,new_data = test)
+
+# clean up the preds
+preds <- preds %>% 
+  bind_cols(id = test$id) %>% 
+  relocate(id) %>% 
+  rename(winner = .pred_class)
+
+```
+
+
+```{r}
+# make the csv to submit
+write.csv(preds, "pred_xgboost_perc.csv", row.names = FALSE)
+```
